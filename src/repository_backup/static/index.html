@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Source Lifeboat</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="top">
+    <div class="top-in">
+      <a class="brand" href="/" aria-label="Source Lifeboat home"><span class="brand-mark" aria-hidden="true">SL</span><span>Source Lifeboat</span><small>Independent archive</small></a>
+      <div class="top-right"><span class="stack-status"><span class="dot run" aria-hidden="true"></span>Dedicated stack</span><span class="theme-btn" aria-label="Fixed light theme">Light</span></div>
+    </div>
+  </header>
+  <div class="shell">
+    <nav class="rail" aria-label="Backup journey">
+      <div class="rail-group"><span class="label">Journey</span><a href="/" aria-current="page"><span class="n">01</span><span>Back up project</span></a><a href="#jobs-heading"><span class="n">02</span><span>Verify</span></a><a href="#archive-boundaries"><span class="n">03</span><span>Restore</span></a><a href="/settings"><span class="n">04</span><span>Settings</span></a></div>
+      <div class="rail-note"><b>Scope</b><br>One current stable release. Source archive plus every uploaded release file.</div>
+    </nav>
+    <main>
+      <div class="strip">Owner-controlled · isolated Forgejo</div>
+      <section class="view">
+        <div class="view-head"><p class="label">Release preservation</p><h1>Back up a GitHub project</h1><p class="lead">Paste a public GitHub repository URL below to save its latest stable release: source code and every ready-made download.</p></div>
+        <section id="setup" class="notice" hidden aria-live="polite"></section>
+        <section id="settings-panel" hidden aria-labelledby="settings-heading">
+        <section id="login-panel" class="panel login" hidden>
+          <div class="section-title"><div><p class="label">Owner access</p><h2>Unlock Settings</h2></div></div>
+          <form id="login-form"><label for="login-token"><span class="label">Login token</span><input id="login-token" type="password" autocomplete="current-password" required></label><div class="actions"><button class="pill pill--yellow">Sign in</button></div></form>
+        </section>
+          <div id="settings-controls" hidden>
+          <div class="panel">
+            <p class="label">Settings / Storage</p><h2>Download folder</h2>
+            <p>Choose where this server saves release source code and ready-made downloads.</p>
+            <form id="downloads-form">
+              <label for="download-folder"><span class="label">Folder on the application server</span><input id="download-folder" type="text" placeholder="/data/downloads" required spellcheck="false"></label>
+              <div class="actions"><button id="downloads-save" class="pill pill--yellow">Save download folder</button><button id="downloads-reset" type="button" class="pill pill--light">Use default</button></div>
+            </form>
+            <p class="note">Applies to new backups. Existing files stay in their current location. In Docker, use a persistent folder mounted into the container. This is a server folder, not your browser’s Downloads folder.</p>
+            <p id="downloads-result" role="status" aria-live="polite"></p>
+          </div>
+          <div class="panel">
+            <p class="label">Settings / GitHub</p><h2 id="settings-heading">GitHub connection</h2>
+            <p>Use anonymous access, or connect your own GitHub account with a personal access token for a higher API quota. This installation uses your credentials only.</p>
+            <p id="github-status" role="status" aria-live="polite">Loading connection settings…</p>
+            <form id="github-form">
+              <label for="github-token"><span class="label">Personal access token</span><input id="github-token" type="password" autocomplete="off" spellcheck="false" placeholder="Enter a new token" required></label>
+              <p class="note">Choose a fine-grained token with public-repository access and an expiry. No write permissions are needed. <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener noreferrer">Create a token on GitHub</a>.</p>
+              <div class="actions"><button id="github-save" class="pill pill--yellow">Save &amp; test connection</button><button id="github-test" type="button" class="pill pill--light">Test connection</button><button id="github-remove" type="button" class="pill pill--light">Remove token</button></div>
+            </form>
+            <p class="note">A saved token is never displayed again. It is stored in a private file on this installation’s server, outside the archive catalog. Use HTTPS when accessing Settings remotely.</p>
+            <p id="github-result" role="status" aria-live="polite"></p>
+          </div>
+          </div>
+        </section>
+        <section id="app-panel" hidden>
+          <form id="backup-form" class="panel" aria-labelledby="new-backup">
+            <div class="section-title"><div><p class="label">New backup</p><h2 id="new-backup">GitHub project URL</h2></div><span class="chip chip--ok">Published only</span></div>
+            <label for="repository-url"><span class="label">Public GitHub repository</span><input id="repository-url" type="url" placeholder="https://github.com/OWNER/REPO" required></label>
+            <div class="actions"><button id="start-backup" class="pill pill--yellow">Back up project</button></div>
+            <p id="backup-access-note" class="note" role="status"></p>
+            <p class="note">Only exact github.com owner/repository URLs are accepted. No branch or prerelease is substituted.</p>
+          </form>
+          <section id="backup-catalog" class="panel" aria-labelledby="jobs-heading">
+            <div class="section-title"><div><p class="label">Catalog</p><h2 id="jobs-heading">Backups</h2></div><button id="refresh" class="pill pill--light">Refresh</button></div>
+            <div id="jobs" class="jobs" aria-live="polite"></div>
+          </section>
+          <aside id="archive-boundaries" class="panel caveat"><p class="label">Archive boundaries</p><h2>Know what the checksum means</h2><p class="muted">Source archives can omit Git LFS objects and submodule content. SHA-256 checksums prove local integrity, not publisher authenticity.</p></aside>
+        </section>
+        <p id="message" role="status" aria-live="polite"></p>
+      </section>
+    </main>
+  </div>
+  <script src="/static/app.js" defer></script>
+</body>
+</html>

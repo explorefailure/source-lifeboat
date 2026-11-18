@@ -1,0 +1,61 @@
+name: ${RB_COMPOSE_PROJECT:-repository-backup}
+
+services:
+  app:
+    build:
+      context: .
+    restart: unless-stopped
+    environment:
+      RB_STATE_DIR: ${RB_STATE_DIR:-/data}
+      RB_GITHUB_TOKEN: ${RB_GITHUB_TOKEN:-}
+      RB_FORGEJO_URL: ${RB_FORGEJO_URL:-http://forgejo:3000}
+      RB_FORGEJO_PUBLIC_URL: ${RB_FORGEJO_PUBLIC_URL:-http://127.0.0.1:3000}
+      RB_FORGEJO_TOKEN: ${RB_FORGEJO_TOKEN:-}
+      RB_FORGEJO_OWNER: ${RB_FORGEJO_OWNER:-repository-backup}
+      RB_PUBLIC_URL: ${RB_PUBLIC_URL:-http://127.0.0.1:8080}
+      RB_INSTALLATION_ID: ${RB_INSTALLATION_ID:-change-me}
+      RB_LOGIN_TOKEN: ${RB_LOGIN_TOKEN:-}
+      RB_MAX_FILE_BYTES: ${RB_MAX_FILE_BYTES:-2147483648}
+      RB_MAX_TOTAL_BYTES: ${RB_MAX_TOTAL_BYTES:-10737418240}
+    ports:
+      - "127.0.0.1:${RB_APP_PORT:-8080}:8080"
+    volumes:
+      - app-data:/data
+    networks:
+      - backup-internal
+    depends_on:
+      forgejo:
+        condition: service_started
+    security_opt:
+      - no-new-privileges:true
+
+  forgejo:
+    image: codeberg.org/forgejo/forgejo:17.0.1
+    restart: unless-stopped
+    environment:
+      USER_UID: "1000"
+      USER_GID: "1000"
+      FORGEJO__server__ROOT_URL: ${RB_FORGEJO_PUBLIC_URL:-http://127.0.0.1:3000/}
+      FORGEJO__server__HTTP_PORT: "3000"
+      FORGEJO__actions__ENABLED: "false"
+      FORGEJO__attachment__MAX_SIZE: ${RB_FORGEJO_MAX_ATTACHMENT_MIB:-2048}
+      FORGEJO__attachment__MAX_FILES: ${RB_FORGEJO_MAX_ATTACHMENTS:-1000}
+      FORGEJO__attachment__ALLOWED_TYPES: ""
+      FORGEJO__repository__ENABLE_PUSH_CREATE_USER: "false"
+      FORGEJO__service__DISABLE_REGISTRATION: "true"
+    ports:
+      - "127.0.0.1:${RB_FORGEJO_PORT:-3000}:3000"
+    volumes:
+      - forgejo-data:/data
+    networks:
+      - backup-internal
+    security_opt:
+      - no-new-privileges:true
+
+networks:
+  backup-internal:
+    driver: bridge
+
+volumes:
+  app-data:
+  forgejo-data:

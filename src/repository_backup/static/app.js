@@ -1,0 +1,110 @@
+"use strict";
+let csrf = "";
+let ownerAuthenticated = false;
+const byId = (id) => document.getElementById(id);
+const message = (text, error=false) => { const node=byId("message"); node.textContent=text; node.className=error ? "error" : ""; };
+async function request(path, options={}) {
+  options.headers = {"Content-Type":"application/json", ...(options.headers||{})};
+  if (options.method && options.method !== "GET") options.headers["X-CSRF-Token"] = csrf;
+  const response = await fetch(path, options); const value = await response.json();
+  if (!response.ok) throw new Error(value.error || `Request failed (${response.status})`); return value;
+}
+function addText(parent, tag, text, className="") { const node=document.createElement(tag); node.textContent=text; if(className) node.className=className; parent.append(node); return node; }
+function renderJobs(jobs) {
+  const root=byId("jobs"); root.replaceChildren();
+  if (!jobs.length) { addText(root,"p","No backups yet.","meta"); return; }
+  for (const job of jobs) {
+    const card=document.createElement("article"); card.className="job";
+    addText(card,"span",job.state,"state"); addText(card,"h3",job.repository || "Unknown repository");
+    if (job.progress && job.progress.message) addText(card,"p",job.progress.message,"meta");
+    if (job.error) addText(card,"p",job.error,"error");
+    if (job.state === "no-release") addText(card,"p","No published stable release exists; no branch fallback was used.");
+    if (job.snapshot) {
+      addText(card,"p",`Release ${job.snapshot.tag} · commit ${job.snapshot.commit_sha}`,"meta");
+      const table=document.createElement("table"); table.className="files";
+      const head=document.createElement("thead"); const hr=document.createElement("tr"); ["File","Size","SHA-256"].forEach(x=>addText(hr,"th",x)); head.append(hr); table.append(head);
+      const body=document.createElement("tbody");
+      for (const file of job.files || []) { const tr=document.createElement("tr"); addText(tr,"td",file.original_filename); addText(tr,"td",`${file.size} bytes`); addText(tr,"td",file.sha256,"hash"); body.append(tr); } table.append(body); card.append(table);
+      if (job.publication && job.publication.forgejo_release_url) { const link=document.createElement("a"); link.href=job.publication.forgejo_release_url; link.rel="noopener noreferrer"; link.textContent="Open archived release in this app’s Forgejo"; card.append(link); }
+    }
+    if (["queued","resolving","downloading","verifying","staged","publishing"].includes(job.state)) { const cancel=addText(card,"button","Cancel"); cancel.addEventListener("click",async()=>{ try { await request(`/api/jobs/${job.id}/cancel`,{method:"POST",body:"{}"}); await loadJobs(); } catch(e){message(e.message,true);} }); }
+    root.append(card);
+  }
+}
+async function loadJobs() { try { const value=await request("/api/jobs"); renderJobs(value.jobs); } catch(e){message(e.message,true);} }
+async function initialise() {
+  try {
+    const status=await request("/api/status"); csrf=status.csrf_token; ownerAuthenticated=status.authenticated;
+    byId("setup").hidden=!status.setup_needed; byId("setup").textContent=status.setup_message || "";
+    const settingsPage = location.pathname === "/settings";
+    if(settingsPage) {
+      document.title="Settings · Source Lifeboat";
+      document.querySelector("h1").textContent="Settings";
+      document.querySelector(".view-head .label").textContent="Your installation";
+      document.querySelector(".view-head .lead").textContent="Configure the GitHub connection for this independent installation.";
+    }
+    byId("login-panel").hidden=!settingsPage || status.setup_needed || status.authenticated;
+    byId("app-panel").hidden=settingsPage;
+    byId("backup-catalog").hidden=!status.authenticated;
+    byId("start-backup").textContent="Back up project";
+    byId("backup-access-note").textContent=status.setup_needed ? "Complete server setup before starting a backup." : status.authenticated ? "Your backup will appear below, with download and verification progress." : "Owner access and GitHub connections are managed in Settings.";
+    byId("start-backup").disabled=status.setup_needed;
+    byId("settings-panel").hidden=!settingsPage;
+    byId("settings-controls").hidden=!status.authenticated;
+    if(!settingsPage && !byId("repository-url").value) byId("repository-url").value=sessionStorage.getItem("pending-backup-url") || "";
+    document.querySelectorAll(".rail a").forEach(a=>{ if(a.getAttribute("href")===(settingsPage ? "/settings" : "/")) a.setAttribute("aria-current","page"); else a.removeAttribute("aria-current"); });
+    if (status.authenticated) { if(settingsPage) { await loadGitHubSettings(); await loadDownloadSettings(); } else await loadJobs(); }
+  } catch(e) { message(e.message,true); }
+}
+byId("login-form").addEventListener("submit",async(event)=>{ event.preventDefault(); try { await request("/api/login",{method:"POST",body:JSON.stringify({token:byId("login-token").value})}); byId("login-token").value=""; if(new URLSearchParams(location.search).get("return")==="backup") {location.assign("/");return;} await initialise(); } catch(e){message(e.message,true);} });
+byId("backup-form").addEventListener("submit",async(event)=>{ event.preventDefault();
+  if(!ownerAuthenticated) { sessionStorage.setItem("pending-backup-url",byId("repository-url").value); location.assign("/settings?return=backup"); return; }
+  const button=byId("start-backup"); button.disabled=true; button.textContent="Checking GitHub…";
+  try { await request("/api/repositories",{method:"POST",body:JSON.stringify({url:byId("repository-url").value})}); byId("repository-url").value=""; sessionStorage.removeItem("pending-backup-url"); message("Backup queued."); await loadJobs(); } catch(e){message(e.message,true);} finally {button.disabled=false;button.textContent="Back up project";} });
+byId("refresh").addEventListener("click",loadJobs);
+initialise();
+
+setInterval(() => { if (ownerAuthenticated && !byId("app-panel").hidden) loadJobs(); }, 3000);
+
+function showGitHubSettings(value) {
+  byId("github-status").textContent = value.configured ? `Token configured (${value.source}). Test the connection to check its account and quota.` : "Anonymous access. No GitHub token is configured.";
+  if(value.tested) {
+    const reset=new Date(value.quota.reset*1000).toLocaleString();
+    byId("github-result").textContent = `${value.account ? "Connected as " + value.account : "Anonymous connection works"}. API requests remaining: ${value.quota.remaining} / ${value.quota.limit}. Resets ${reset}.`;
+  }
+}
+async function loadGitHubSettings() { showGitHubSettings(await request("/api/settings/github")); }
+async function changeGitHub(action) {
+  const input=byId("github-token"); const token=input.value; input.value="";
+  const buttons=[byId("github-save"),byId("github-test"),byId("github-remove")];
+  buttons.forEach(b=>b.disabled=true); byId("github-result").textContent="Checking GitHub settings…";
+  try {
+    const value=await request("/api/settings/github",{method:"POST",body:JSON.stringify(action==="save" ? {action,token} : {action})});
+    byId("github-result").textContent=action==="remove" ? "Token removed. New backup requests will use anonymous access." : "";
+    showGitHubSettings(value);
+  } catch(e) { byId("github-result").textContent=e.message; }
+  finally { buttons.forEach(b=>b.disabled=false); }
+}
+byId("github-form").addEventListener("submit",event=>{event.preventDefault();changeGitHub("save");});
+byId("github-test").addEventListener("click",()=>changeGitHub("test"));
+byId("github-remove").addEventListener("click",()=>changeGitHub("remove"));
+
+let defaultDownloadFolder="";
+async function loadDownloadSettings() {
+  const value=await request("/api/settings/downloads");
+  defaultDownloadFolder=value.default_folder;
+  byId("download-folder").value=value.folder;
+  byId("downloads-result").textContent=`Current folder: ${value.folder}`;
+}
+async function saveDownloadFolder(folder) {
+  const buttons=[byId("downloads-save"),byId("downloads-reset")];
+  buttons.forEach(b=>b.disabled=true);
+  try {
+    const value=await request("/api/settings/downloads",{method:"POST",body:JSON.stringify({folder})});
+    byId("download-folder").value=value.folder;
+    byId("downloads-result").textContent=`Saved. New backups will use ${value.folder}. Existing backups were not moved.`;
+  } catch(e) { byId("downloads-result").textContent=e.message; }
+  finally { buttons.forEach(b=>b.disabled=false); }
+}
+byId("downloads-form").addEventListener("submit",event=>{event.preventDefault();saveDownloadFolder(byId("download-folder").value);});
+byId("downloads-reset").addEventListener("click",()=>saveDownloadFolder(defaultDownloadFolder));
