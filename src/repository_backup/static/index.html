@@ -26,7 +26,9 @@
         <section id="settings-panel" hidden aria-labelledby="settings-heading">
         <section id="login-panel" class="panel login" hidden>
           <div class="section-title"><div><p class="label">Owner access</p><h2>Unlock Settings</h2></div></div>
-          <form id="login-form"><label for="login-token"><span class="label">Login token</span><input id="login-token" type="password" autocomplete="current-password" required></label><div class="actions"><button class="pill pill--yellow">Sign in</button></div></form>
+          <p>Your owner password protects this app’s settings and backup controls. GitHub sign-in is separate.</p>
+          <form id="owner-setup-form" hidden><label for="owner-password">Create owner password<input id="owner-password" type="password" autocomplete="new-password" minlength="12" maxlength="128" required></label><label for="owner-password-confirm">Confirm password<input id="owner-password-confirm" type="password" autocomplete="new-password" minlength="12" maxlength="128" required></label><label id="owner-setup-key-label" for="owner-setup-key" hidden>Installation setup key<input id="owner-setup-key" type="password" autocomplete="off"></label><p class="note">Use at least 12 characters. This is your Source Lifeboat password, not your GitHub password.</p><div class="actions"><button class="pill pill--yellow">Create password &amp; continue</button></div></form>
+          <form id="login-form"><label for="login-token"><span class="label">Owner password</span><input id="login-token" type="password" autocomplete="current-password" required></label><div class="actions"><button class="pill pill--yellow">Sign in</button></div></form>
         </section>
           <div id="settings-controls" hidden>
           <div class="panel">

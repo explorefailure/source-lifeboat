@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import ipaddress
 import os
 import secrets
 import shutil
@@ -26,6 +27,7 @@ from .forgejo import ForgejoClient, archive_repository_name
 from .github import GitHubClient, GitHubError, NoRelease, parse_repository_url
 from .jobs import JobWorker
 from . import oauth
+from .auth import OwnerAuth
 from .manifest import build_manifest, read_manifest, write_manifest, same_release_contents
 
 
@@ -62,7 +64,7 @@ class Config:
 
     @property
     def setup_needed(self) -> bool:
-        return not all((self.forgejo_token, self.installation_id, self.login_token))
+        return not all((self.forgejo_token, self.installation_id))
 
     @property
     def origin(self) -> str:
@@ -231,6 +233,7 @@ class Application:
         self.catalog = Catalog(config.state_dir / "catalog.sqlite3")
         self.github_settings = GitHubSettings(config.state_dir)
         self.download_settings = DownloadSettings(config.state_dir)
+        self.owner_auth = OwnerAuth(config.state_dir, config.login_token)
         self.sessions: dict[str, float] = {}
         self.sessions_lock = threading.Lock()
         self.worker = JobWorker(self.catalog, self._process_job, workers=1, capacity=32)
@@ -461,8 +464,10 @@ class Handler(BaseHTTPRequestHandler):
             token = csrf.value if csrf else secrets.token_urlsafe(32)
             body = json.dumps({
                 "setup_needed": self.app.config.setup_needed,
-                "setup_message": "Configure Forgejo, installation identity and login token to begin." if self.app.config.setup_needed else None,
+                "setup_message": "Configure the dedicated Forgejo and installation identity to enable backups." if self.app.config.setup_needed else None,
                 "authenticated": self._authenticated(),
+                "owner_setup_needed": not self.app.owner_auth.exists(),
+                "owner_setup_key_required": bool(self.app.config.login_token or os.environ.get("RB_SETUP_TOKEN")),
                 "installation_id": self.app.config.installation_id or None,
                 "csrf_token": token,
             }, separators=(",", ":")).encode("utf-8")
@@ -537,14 +542,49 @@ class Handler(BaseHTTPRequestHandler):
         value = self._read_json()
         if value is None:
             return
-        if path == "/api/login":
-            if self.app.config.setup_needed:
-                self._json(503, {"error": "setup is required before login"})
-                return
-            token = value.get("token")
-            if not isinstance(token, str) or not hmac.compare_digest(token, self.app.config.login_token):
-                self._json(401, {"error": "invalid login token"})
-                return
+        if path in ("/api/login", "/api/setup/owner"):
+            if path == "/api/setup/owner":
+                if self.app.owner_auth.exists():
+                    self._json(409, {"error": "An owner password is already configured. Sign in with it."})
+                    return
+                setup_key = os.environ.get("RB_SETUP_TOKEN") or self.app.config.login_token
+                if setup_key:
+                    supplied = value.get("setup_key", "")
+                    if not self._authenticated() and (not isinstance(supplied, str) or not hmac.compare_digest(supplied.encode(), setup_key.encode())):
+                        self._json(403, {"error": "Enter the existing installation setup key to create the owner password."})
+                        return
+                else:
+                    # An unclaimed installation can only be initialized locally.
+                    try:
+                        local_peer = ipaddress.ip_address(self.client_address[0]).is_loopback
+                        local_url = ipaddress.ip_address(urllib.parse.urlsplit(self.app.config.public_url).hostname).is_loopback
+                    except ValueError:
+                        local_peer = local_url = False
+                    if not (local_peer and local_url):
+                        self._json(403, {"error": "First setup requires a local connection, or an operator-configured RB_SETUP_TOKEN."})
+                        return
+                try:
+                    self.app.owner_auth.create(value.get("password"), value.get("confirmation"))
+                except FileExistsError:
+                    self._json(409, {"error": "An owner password is already configured."})
+                    return
+                except ValueError as exc:
+                    self._json(400, {"error": str(exc)})
+                    return
+                except OSError:
+                    self._json(500, {"error": "Could not save the owner password. Check server storage permissions."})
+                    return
+                with self.app.sessions_lock:
+                    self.app.sessions.clear()
+            else:
+                try:
+                    valid = self.app.owner_auth.verify(value.get("password", value.get("token")))
+                except ValueError as exc:
+                    self._json(429, {"error": str(exc)})
+                    return
+                if not valid:
+                    self._json(401, {"error": "Incorrect owner password."})
+                    return
             session = secrets.token_urlsafe(32)
             with self.app.sessions_lock:
                 self.app.sessions[session] = time.time() + 12 * 3600

@@ -43,7 +43,12 @@ async function initialise() {
       document.querySelector(".view-head .label").textContent="Your installation";
       document.querySelector(".view-head .lead").textContent="Configure the GitHub connection for this independent installation.";
     }
-    byId("login-panel").hidden=!settingsPage || status.setup_needed || status.authenticated;
+    byId("login-panel").hidden=!settingsPage || status.authenticated;
+    byId("owner-setup-form").hidden=!status.owner_setup_needed;
+    byId("login-form").hidden=status.owner_setup_needed;
+    byId("login-panel").querySelector("h2").textContent=status.owner_setup_needed ? "Create your owner password" : "Unlock Settings";
+    byId("owner-setup-key-label").hidden=!status.owner_setup_key_required;
+    byId("owner-setup-key").required=status.owner_setup_key_required;
     byId("app-panel").hidden=settingsPage;
     byId("backup-catalog").hidden=!status.authenticated;
     byId("start-backup").textContent="Back up project";
@@ -56,7 +61,7 @@ async function initialise() {
     if (status.authenticated) { if(settingsPage) { await loadGitHubSettings(); await loadDownloadSettings(); } else await loadJobs(); }
   } catch(e) { message(e.message,true); }
 }
-byId("login-form").addEventListener("submit",async(event)=>{ event.preventDefault(); try { await request("/api/login",{method:"POST",body:JSON.stringify({token:byId("login-token").value})}); byId("login-token").value=""; if(new URLSearchParams(location.search).get("return")==="backup") {location.assign("/");return;} await initialise(); } catch(e){message(e.message,true);} });
+byId("login-form").addEventListener("submit",async(event)=>{ event.preventDefault(); try { await request("/api/login",{method:"POST",body:JSON.stringify({password:byId("login-token").value})}); byId("login-token").value=""; if(new URLSearchParams(location.search).get("return")==="backup") {location.assign("/");return;} await initialise(); } catch(e){message(e.message,true);} });
 byId("backup-form").addEventListener("submit",async(event)=>{ event.preventDefault();
   if(!ownerAuthenticated) { sessionStorage.setItem("pending-backup-url",byId("repository-url").value); location.assign("/settings?return=backup"); return; }
   const button=byId("start-backup"); button.disabled=true; button.textContent="Checking GitHub…";
@@ -158,4 +163,14 @@ byId("github-client-form").addEventListener("submit",async(event)=>{
   event.preventDefault();stopDevice();
   try {await deviceAction("client",{client_id:byId("github-client-id").value.trim()});byId("github-result").textContent="Client ID saved. Connect with GitHub to sign in.";await loadGitHubSettings();}
   catch(e){byId("github-result").textContent=e.message;}
+});
+
+byId("owner-setup-form").addEventListener("submit",async(event)=>{
+  event.preventDefault();const button=event.submitter;button.disabled=true;
+  try {
+    await request("/api/setup/owner",{method:"POST",body:JSON.stringify({password:byId("owner-password").value,confirmation:byId("owner-password-confirm").value,setup_key:byId("owner-setup-key").value})});
+    byId("owner-setup-form").reset();message("Owner password created. You can now connect GitHub below.");
+    if(new URLSearchParams(location.search).get("return")==="backup"){location.assign("/");return;}
+    await initialise();
+  }catch(e){message(e.message,true);}finally{button.disabled=false;}
 });

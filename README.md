@@ -28,11 +28,13 @@ Copy `.env.example` to an operator-controlled `.env` and replace every placehold
 - `RB_FORGEJO_OWNER`: dedicated user or organization namespace.
 - `RB_PUBLIC_URL`: exact browser origin; requests with another Host or Origin are rejected.
 - `RB_INSTALLATION_ID`: unique operator-created installation identity.
-- `RB_LOGIN_TOKEN`: long random owner login token.
+- Owner password: create it on the first visit to **Settings**.
+- `RB_SETUP_TOKEN`: a one-time operator key for first setup through Docker or a remote URL. Enter it alongside the new password, then remove it from the environment. Direct loopback installations do not need it.
+- `RB_LOGIN_TOKEN`: optional legacy credential for existing installations; new installs can leave it empty.
 - `RB_MAX_FILE_BYTES` and `RB_MAX_TOTAL_BYTES`: app transfer quotas.
 - `RB_FORGEJO_MAX_ATTACHMENT_MIB` and `RB_FORGEJO_MAX_ATTACHMENTS`: corresponding Forgejo release-attachment limits.
 
-The service starts without the Forgejo or login token and shows a setup-needed state. It will not start its backup worker until all required operator configuration is present. Forgejo and owner-access secrets are configured outside source. Optional GitHub credentials can be configured through the authenticated Settings page.
+The service starts before Forgejo is configured, so you can create your owner password in Settings first. Backups require Forgejo and installation identity; their setup status is separate from owner access. Existing installations with `RB_LOGIN_TOKEN` require that credential to create the password. After creation, only the password is accepted. GitHub credentials are configured through the authenticated Settings page.
 
 ```sh
 docker compose config
@@ -84,7 +86,7 @@ The script always retains its test repository. `RB_TEST_KEEP_RESULT` remains acc
 
 ## Development status
 
-The initial candidate passes 64 dependency-free unit tests. GUI checks cover desktop/mobile layout, owner access in Settings, token handling, download-folder changes and backup submission. Browser submission tests use fixture responses; they are not proof of a full backup. Real disposable Forgejo backup/restore checks were also run during development, but those earlier results are not a production acceptance guarantee for every later change.
+The initial candidate passes 73 dependency-free unit tests. GUI checks cover desktop/mobile layout, owner access in Settings, token handling, download-folder changes and backup submission. Browser submission tests use fixture responses; they are not proof of a full backup. Real disposable Forgejo backup/restore checks were also run during development, but those earlier results are not a production acceptance guarantee for every later change.
 
 OAuth device-code sign-in, polling limits and expiring-token refresh are implemented. The account approval still requires a user on GitHub. See [OAuth setup](docs/OAUTH_SETUP.md). Personal tokens and anonymous mode remain available. See [Security](SECURITY.md) for deployment boundaries.
 
@@ -111,3 +113,11 @@ The public project name is Source Lifeboat. Existing `RB_*` settings, Python mod
 Owner sign-in is located on Settings. The backup page contains only project entry and backup results. If owner access is needed when starting a backup, the app opens Settings and preserves the entered repository URL for the return trip.
 
 Archive catalog names use a length-prefixed GitHub owner to distinguish identities such as `a-b/c` and `a/b-c`. New archives use this convention; prior development snapshots and links are retained without migration.
+
+### Owner password setup and recovery
+
+Open **Settings**, choose a password of 12–128 characters, confirm it, and continue. You will be signed in automatically. This owner password protects Source Lifeboat itself; GitHub authorization is a separate step below it.
+
+The server stores a salted scrypt hash in `RB_STATE_DIR/private/owner.json` (0600), not the password. Initial creation is allowed only from a direct loopback connection with a loopback public URL, or with the operator's `RB_SETUP_TOKEN`. Docker connections appear as bridge traffic and require that setup key. Set it before starting the service; anyone with that key can claim an uninitialized installation, so keep it private and remove it after setup. An existing owner cannot be replaced through the setup endpoint.
+
+If the password is lost, an operator with filesystem access must stop the service, move `private/owner.json` to a protected recovery location, configure a new `RB_SETUP_TOKEN`, restart, and create a new owner password in Settings. Restarting ends existing sessions. GitHub credentials and backups remain intact. Remove the setup key afterward. There is no email recovery service.
