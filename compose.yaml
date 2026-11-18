@@ -7,6 +7,7 @@ services:
     restart: unless-stopped
     environment:
       RB_STATE_DIR: ${RB_STATE_DIR:-/data}
+      RB_GITHUB_CLIENT_ID: ${RB_GITHUB_CLIENT_ID:-Ov23lid8jIzZrxu2Ye6d}
       RB_GITHUB_TOKEN: ${RB_GITHUB_TOKEN:-}
       RB_FORGEJO_URL: ${RB_FORGEJO_URL:-http://forgejo:3000}
       RB_FORGEJO_PUBLIC_URL: ${RB_FORGEJO_PUBLIC_URL:-http://127.0.0.1:3000}

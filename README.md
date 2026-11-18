@@ -84,9 +84,9 @@ The script always retains its test repository. `RB_TEST_KEEP_RESULT` remains acc
 
 ## Development status
 
-The initial candidate passes 54 dependency-free unit tests. GUI checks cover desktop/mobile layout, owner access in Settings, token handling, download-folder changes and backup submission. Browser submission tests use fixture responses; they are not proof of a full backup. Real disposable Forgejo backup/restore checks were also run during development, but those earlier results are not a production acceptance guarantee for every later change.
+The initial candidate passes 64 dependency-free unit tests. GUI checks cover desktop/mobile layout, owner access in Settings, token handling, download-folder changes and backup submission. Browser submission tests use fixture responses; they are not proof of a full backup. Real disposable Forgejo backup/restore checks were also run during development, but those earlier results are not a production acceptance guarantee for every later change.
 
-OAuth device-code sign-in is being set up; it is not implemented yet. See [OAuth setup](docs/OAUTH_SETUP.md). Personal tokens and anonymous mode work today. See [Security](SECURITY.md) for deployment boundaries.
+OAuth device-code sign-in, polling limits and expiring-token refresh are implemented. The account approval still requires a user on GitHub. See [OAuth setup](docs/OAUTH_SETUP.md). Personal tokens and anonymous mode remain available. See [Security](SECURITY.md) for deployment boundaries.
 
 Source Lifeboat is independent software and is not affiliated with GitHub or Forgejo. The HWB visual foundation attribution is in `NOTICE`.
 
@@ -94,11 +94,11 @@ Verification cleanup is operator-only: the integration script retains its dispos
 
 ## GitHub settings
 
-Sign into the owner GUI and open **Settings → GitHub**. Anonymous mode requires no GitHub account. Create a fine-grained personal access token with public repository access, an expiry and no extra write permissions. **Save & test connection** validates it before replacing the current token. **Test connection** displays the account and API quota. **Remove token** returns to anonymous access, overriding any environment fallback. Saved tokens are never returned to the browser. New requests use changed settings without a restart; in-flight downloads may still finish with the credential they already loaded.
+Sign into the owner GUI and open **Settings → GitHub**. Anonymous mode requires no GitHub account. Choose **Connect with GitHub**, enter the displayed short code at GitHub, approve and return to Settings. The app requests public information only and stores the resulting credentials on your server. Expiring tokens refresh automatically; **Disconnect** removes local credentials. Alternatively, create a fine-grained personal access token with public repository access, an expiry and no extra write permissions. **Save & test connection** validates it before replacing the current token. **Test connection** displays the account and API quota. **Remove token** returns to anonymous access, overriding any environment fallback. Saved tokens are never returned to the browser. New requests use changed settings without a restart; in-flight downloads may still finish with the credential they already loaded.
 
 Credentials are installation-local, stored unencrypted in `RB_STATE_DIR/private/github.json` with a mode-700 directory and mode-600 file and atomic replacement. They are outside the archive catalog and manifests. Protect the server directory and full service-volume backups. Use HTTPS for remote access. Removal from this app does not revoke the token on GitHub.
 
-Unattended deployments may set `RB_GITHUB_TOKEN`; Compose forwards it, and explicit GUI settings take precedence. Never commit tokens or real `.env` files. This uses personal access tokens, not GitHub passwords or OAuth. It requires no shared developer credential or personal infrastructure.
+Unattended deployments may set `RB_GITHUB_TOKEN`; Compose forwards it, and explicit GUI settings take precedence. Never commit tokens or real `.env` files. GitHub passwords are never collected. The default OAuth Client ID is public; installations can supply their own in Settings or `RB_GITHUB_CLIENT_ID`. No client secret or maintainer account credential is required.
 
 ## Download folder
 

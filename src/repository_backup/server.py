@@ -25,6 +25,7 @@ from .downloader import DownloadedFile, SafeDownloader
 from .forgejo import ForgejoClient, archive_repository_name
 from .github import GitHubClient, GitHubError, NoRelease, parse_repository_url
 from .jobs import JobWorker
+from . import oauth
 from .manifest import build_manifest, read_manifest, write_manifest, same_release_contents
 
 
@@ -83,6 +84,16 @@ class GitHubSettings:
         self.folder.chmod(0o700)
         self.path = self.folder / "github.json"
         self.lock = threading.RLock()
+        self.client_path = self.folder / "github-client.json"
+        self.device = oauth.DeviceFlow(self)
+
+    def client_id(self) -> str:
+        with self.lock:
+            if self.client_path.is_symlink():
+                raise ValueError("GitHub client settings must not be a symlink")
+            if self.client_path.exists():
+                return oauth.client_id(json.loads(self.client_path.read_text())["client_id"])
+            return oauth.client_id(os.environ.get("RB_GITHUB_CLIENT_ID", oauth.DEFAULT_CLIENT_ID))
 
     def token(self) -> str | None:
         with self.lock:
@@ -90,25 +101,56 @@ class GitHubSettings:
                 raise ValueError("GitHub settings must not be a symlink")
             if self.path.exists():
                 self.path.chmod(0o600)
-                return json.loads(self.path.read_text())["token"]
+                record = json.loads(self.path.read_text())
+                if record.get("kind") == "oauth" and record.get("expires_at", float("inf")) <= time.time() + 60:
+                    if record.get("refresh_expires_at", 0) <= time.time():
+                        raise GitHubError("GitHub sign-in expired. Reconnect in Settings.")
+                    result = oauth.post("/login/oauth/access_token", {"client_id": record["client_id"],
+                        "grant_type": "refresh_token", "refresh_token": record["refresh_token"]})
+                    if result.get("error"):
+                        raise GitHubError("GitHub sign-in could not be refreshed. Reconnect in Settings.")
+                    updated = oauth.token_record(result, record["client_id"])
+                    if "expires_at" not in updated:
+                        raise GitHubError("GitHub returned incomplete refreshed credentials. Reconnect in Settings.")
+                    # Revalidate identity on rotation as well as initial sign-in.
+                    connection = self.test(updated["token"])
+                    updated["account"] = connection["account"]
+                    if record.get("account") != updated["account"]:
+                        raise GitHubError("GitHub account changed during refresh. Reconnect in Settings.")
+                    self.write_private(self.path, updated)
+                    record = updated
+                return record["token"]
             return os.environ.get("RB_GITHUB_TOKEN") or None
 
     def status(self) -> dict[str, Any]:
-        token = self.token()
-        return {"configured": bool(token), "mode": "authenticated" if token else "anonymous",
-                "source": "settings" if self.path.exists() else "environment" if token else "none"}
+        with self.lock:
+            if self.path.is_symlink():
+                raise ValueError("GitHub settings must not be a symlink")
+            record = json.loads(self.path.read_text()) if self.path.exists() else {"token": os.environ.get("RB_GITHUB_TOKEN")}
+            token = record.get("token")
+            return {"configured": bool(token), "mode": "authenticated" if token else "anonymous",
+                    "source": "settings" if self.path.exists() else "environment" if token else "none",
+                    "kind": record.get("kind", "token") if token else "anonymous",
+                    "account": record.get("account"), "expires_at": record.get("expires_at"),
+                    "client_id": self.client_id()}
+
+    def write_private(self, path: Path, value: dict[str, Any]) -> None:
+        if path.is_symlink():
+            raise ValueError("GitHub settings must not be a symlink")
+        fd, name = tempfile.mkstemp(prefix=".github-", dir=self.folder)
+        try:
+            with os.fdopen(fd, "w") as target:
+                json.dump(value, target)
+                target.flush()
+                os.fsync(target.fileno())
+            os.replace(name, path)
+        finally:
+            Path(name).unlink(missing_ok=True)
 
     def save(self, token: str | None) -> None:
         with self.lock:
-            fd, name = tempfile.mkstemp(prefix=".github-", dir=self.folder)
-            try:
-                with os.fdopen(fd, "w") as target:
-                    json.dump({"token": token}, target)
-                    target.flush()
-                    os.fsync(target.fileno())
-                os.replace(name, self.path)
-            finally:
-                Path(name).unlink(missing_ok=True)
+            self.device.flow = None
+            self.write_private(self.path, {"token": token})
 
     @staticmethod
     def validate_token(token: Any) -> str:
@@ -524,14 +566,27 @@ class Handler(BaseHTTPRequestHandler):
             except (ValueError, OSError):
                 self._json(400, {"error": "Choose an absolute, writable server folder outside private settings; staging and snapshots must not be symlinks. Existing settings were kept."})
             return
+        if path == "/api/settings/github/device":
+            try:
+                session = self._cookies()["rb_session"].value
+                result = self.app.github_settings.device.action(value.get("action"), value, session)
+                self._json(200, result)
+            except ValueError as exc:
+                self._json(400, {"error": str(exc)})
+            except GitHubError as exc:
+                self._json(502, {"error": str(exc)})
+            except OSError:
+                self._json(500, {"error": "Could not store GitHub sign-in. Check server storage permissions."})
+            return
         if path == "/api/settings/github":
             action = value.get("action")
             settings = self.app.github_settings
             try:
                 if action == "save":
                     token = settings.validate_token(value.get("token"))
-                    connection = settings.test(token)
-                    settings.save(token)
+                    with settings.lock:
+                        connection = settings.test(token)
+                        settings.save(token)
                     self._json(200, {**settings.status(), **connection})
                 elif action == "remove":
                     settings.save(None)

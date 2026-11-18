@@ -12,3 +12,4 @@ form { display:grid; gap:18px; } label { display:grid; gap:7px; font-weight:600;
 
 #settings-panel p { margin: 12px 0; }
 #settings-panel #github-status { font-size: 14px; }
+#github-device-code { display:block; margin-top:8px; font:700 24px/1.4 var(--mono); letter-spacing:.08em; color:var(--ink); }

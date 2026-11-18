@@ -41,13 +41,26 @@
           </div>
           <div class="panel">
             <p class="label">Settings / GitHub</p><h2 id="settings-heading">GitHub connection</h2>
-            <p>Use anonymous access, or connect your own GitHub account with a personal access token for a higher API quota. This installation uses your credentials only.</p>
+            <p>Connect your GitHub account for a higher API quota, or keep using anonymous access. Only public information is requested.</p>
             <p id="github-status" role="status" aria-live="polite">Loading connection settings…</p>
+            <div class="actions"><button id="github-connect" type="button" class="pill pill--yellow">Connect with GitHub</button><button id="github-disconnect" type="button" class="pill pill--light">Disconnect</button></div>
+            <div id="github-device" hidden>
+              <p>Enter this code on GitHub: <strong id="github-device-code" class="hash"></strong></p>
+              <p><a href="https://github.com/login/device" target="_blank" rel="noopener noreferrer">Open GitHub to approve</a></p>
+              <p id="github-device-status" role="status" aria-live="polite"></p>
+              <button id="github-device-cancel" type="button" class="pill pill--light">Cancel sign-in</button>
+            </div>
+            <details><summary>Use your own OAuth application</summary>
+              <form id="github-client-form"><label for="github-client-id">Public Client ID<input id="github-client-id" type="text" required autocomplete="off" spellcheck="false"></label><div class="actions"><button class="pill pill--light">Save Client ID</button></div></form>
+              <p class="note">Enable Device Flow in your GitHub OAuth app. No client secret is needed.</p>
+            </details>
+            <details><summary>Use a personal access token instead</summary>
             <form id="github-form">
               <label for="github-token"><span class="label">Personal access token</span><input id="github-token" type="password" autocomplete="off" spellcheck="false" placeholder="Enter a new token" required></label>
               <p class="note">Choose a fine-grained token with public-repository access and an expiry. No write permissions are needed. <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener noreferrer">Create a token on GitHub</a>.</p>
               <div class="actions"><button id="github-save" class="pill pill--yellow">Save &amp; test connection</button><button id="github-test" type="button" class="pill pill--light">Test connection</button><button id="github-remove" type="button" class="pill pill--light">Remove token</button></div>
             </form>
+            </details>
             <p class="note">A saved token is never displayed again. It is stored in a private file on this installation’s server, outside the archive catalog. Use HTTPS when accessing Settings remotely.</p>
             <p id="github-result" role="status" aria-live="polite"></p>
           </div>

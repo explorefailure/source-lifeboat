@@ -67,7 +67,9 @@ initialise();
 setInterval(() => { if (ownerAuthenticated && !byId("app-panel").hidden) loadJobs(); }, 3000);
 
 function showGitHubSettings(value) {
-  byId("github-status").textContent = value.configured ? `Token configured (${value.source}). Test the connection to check its account and quota.` : "Anonymous access. No GitHub token is configured.";
+  byId("github-status").textContent = value.configured ? (value.kind === "oauth" ? `Connected with GitHub${value.account ? " as " + value.account : ""}.` : `Token configured (${value.source}). Test the connection to check its account and quota.`) : "Anonymous access. No GitHub token is configured.";
+  byId("github-client-id").value=value.client_id || "";
+  byId("github-disconnect").disabled=!value.configured;
   if(value.tested) {
     const reset=new Date(value.quota.reset*1000).toLocaleString();
     byId("github-result").textContent = `${value.account ? "Connected as " + value.account : "Anonymous connection works"}. API requests remaining: ${value.quota.remaining} / ${value.quota.limit}. Resets ${reset}.`;
@@ -75,6 +77,7 @@ function showGitHubSettings(value) {
 }
 async function loadGitHubSettings() { showGitHubSettings(await request("/api/settings/github")); }
 async function changeGitHub(action) {
+  if(action!=="test") stopDevice();
   const input=byId("github-token"); const token=input.value; input.value="";
   const buttons=[byId("github-save"),byId("github-test"),byId("github-remove")];
   buttons.forEach(b=>b.disabled=true); byId("github-result").textContent="Checking GitHub settings…";
@@ -108,3 +111,51 @@ async function saveDownloadFolder(folder) {
 }
 byId("downloads-form").addEventListener("submit",event=>{event.preventDefault();saveDownloadFolder(byId("download-folder").value);});
 byId("downloads-reset").addEventListener("click",()=>saveDownloadFolder(defaultDownloadFolder));
+
+let deviceTimer;
+let deviceGeneration=0;
+async function deviceAction(action, extra={}) {
+  return request("/api/settings/github/device", {method:"POST", body:JSON.stringify({action,...extra})});
+}
+function stopDevice() {
+  clearTimeout(deviceTimer); deviceGeneration++;
+  byId("github-device").hidden=true;
+  byId("github-device-code").textContent="";
+  byId("github-connect").disabled=false;
+}
+function showDevice(value, generation) {
+  if(generation!==deviceGeneration) return;
+  if(value.state!=="pending") {
+    stopDevice();
+    const labels={connected:"GitHub connected. New backups will use this account.",denied:"GitHub sign-in was declined.",expired:"The sign-in code expired. Connect again for a new code.",failed:"GitHub sign-in failed. Connect again.",idle:"Sign-in ended. Connect again.",cancelled:"Sign-in cancelled."};
+    byId("github-result").textContent=labels[value.state] || "Sign-in ended.";
+    loadGitHubSettings().catch(e=>{byId("github-result").textContent=e.message;});
+    return;
+  }
+  byId("github-device").hidden=false;
+  byId("github-device-code").textContent=value.user_code;
+  byId("github-device-status").textContent=`Waiting for approval. Code expires ${new Date(value.expires_at*1000).toLocaleTimeString()}.`;
+  deviceTimer=setTimeout(async()=>{
+    if(generation!==deviceGeneration) return;
+    try { showDevice(await deviceAction("poll"),generation); }
+    catch(e) { if(generation===deviceGeneration) {stopDevice();byId("github-result").textContent=e.message;} }
+  },Math.max(value.interval,1)*1000);
+}
+byId("github-connect").addEventListener("click",async()=>{
+  stopDevice(); const generation=deviceGeneration;
+  byId("github-connect").disabled=true;
+  byId("github-result").textContent="Requesting a sign-in code from GitHub…";
+  try {const value=await deviceAction("start");if(generation===deviceGeneration){byId("github-result").textContent="";showDevice(value,generation);}}
+  catch(e){if(generation===deviceGeneration){stopDevice();byId("github-result").textContent=e.message;}}
+});
+byId("github-device-cancel").addEventListener("click",async()=>{
+  stopDevice();
+  try {await deviceAction("cancel");byId("github-result").textContent="Sign-in cancelled.";}
+  catch(e){byId("github-result").textContent=e.message;}
+});
+byId("github-disconnect").addEventListener("click",()=>{stopDevice();changeGitHub("remove");});
+byId("github-client-form").addEventListener("submit",async(event)=>{
+  event.preventDefault();stopDevice();
+  try {await deviceAction("client",{client_id:byId("github-client-id").value.trim()});byId("github-result").textContent="Client ID saved. Connect with GitHub to sign in.";await loadGitHubSettings();}
+  catch(e){byId("github-result").textContent=e.message;}
+});
